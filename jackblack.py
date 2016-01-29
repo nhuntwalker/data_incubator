@@ -35,8 +35,7 @@ for ii in range(n_means):
 class Recur(object):
     def __init__(self, N):
         self.N = N
-        self.superset = "["
-        self.scores = []
+        self.superset = []
 
     def recursion(self, prev_sum=0, this_sum=0, old_nums=[], new_nums=[]):
         for ii in range(len(cardvals)):
@@ -56,71 +55,54 @@ class Recur(object):
             this_sum = prev_sum
 
     def add_to_superset(self, the_list):
-        self.superset += str(the_list) + ","
+        self.superset.append(str(the_list))
 
     def finish_superset(self):
-        self.superset += "]"
-        self.superset = eval(self.superset)
+        self.superset = [eval(the_set) for the_set in self.superset]
 
     def calculate_scores(self):
-        if type(self.superset) == str:
+        if self.superset == []:
             self.recursion()
             self.finish_superset()
 
+        self.scores = np.zeros(len(self.superset))
+        for ii in range(len(self.superset)):
+            self.scores[ii] = (sum(self.superset[ii]) - self.N)
+
+    def prob_score_lte(self, num):
+        draws = len(self.scores)
+        less_than_lim = sum(self.scores <= num)
+        return less_than_lim / float(draws)
+
+    def prob_draw_card(self, card):
+        draws = len(self.scores)
+        drew_an_8 = sum([1 for combo in self.superset if card in combo])
+        return drew_an_8 / float(draws)
+
+    def prob_score_lte_given_card(self, num, card):
+        drew_a_card = sum([1 for combo in self.superset if card in combo])
+        the_count = 0
         for combo in self.superset:
-            self.scores.append(sum(combo) - self.N)
+            if card in combo:
+                if sum(combo) - self.N <= num:
+                    the_count += 1
+
+        return float(the_count) / drew_a_card
+
+    def prob_drew_card_given_score(self, card, num):
+        got_a_score = sum([1 for score in self.scores if score <= num])
+        the_count = 0
+        for combo in self.superset:
+            if sum(combo) - self.N <= num:
+                if card in combo:
+                    the_count += 1
+        return float(the_count) / got_a_score
+
 
 recur = Recur(21)
+recur.calculate_scores()
+print recur.prob_score_lte_given_card(5, 8)
 
-
-less_than_5 = 0
-has_an_eight = 0
-has_eight_and_lt_5 = 0
-
-for each_set in set_of_steps:
-    if sum(each_set) - N <= 5:
-        less_than_5 += 1
-    if 8 in each_set:
-        has_an_eight += 1
-    if (sum(each_set) - N <= 5) & (8 in each_set):
-        has_eight_and_lt_5 += 1
-
-# def test_recursion_nosave(N, prev_sum=0, current_sum=0, card_flag=False):
-#     for ii in range(len(cardvals)):
-#         prev_sum = current_sum
-#         current_sum += cardvals[ii]
-
-#         if (cardvals[ii] == 1) & (card_flag == False):
-#             card_flag = True
-        
-#         if current_sum < N:
-#             test_recursion_nosave(N, prev_sum, current_sum, card_flag)
-#             current_sum = prev_sum
-
-#             if card_flag == True:
-#                 card_flag = False
-
-#         else:
-#             the_count.append(1)
-#             if current_sum - N <= 5:
-#                 score_lt_5.append(1)
-
-#                 if card_flag == True:
-#                     score_and_8.append(1)
-
-#             if card_flag == True:
-#                 drew_an_8.append(1)
-#                 # print current_sum
-#                 # card_flag = False
-
-#             current_sum = prev_sum 
-         
-
-# the_count = []
-# score_lt_5 = []
-# drew_an_8 = []
-# score_and_8 = []
-
-# test_recursion_nosave(2)
-
-# print len(the_count), len(score_lt_5), len(drew_an_8), len(score_and_8)
+# recur = Recur(100)
+# recur.calculate_scores()
+# print recur.prob_score_lte_given_card(5, 8)
