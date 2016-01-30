@@ -3,7 +3,7 @@ import pandasql as sql
 import numpy as np
 
 data_df = pd.read_csv("realtime.csv").rename(columns={'Unnamed: 0': "entry_id"})
-
+data_df.timestamp = pd.to_datetime(data_df.timestamp, unit="s")
 # median number of trips made by single vehicle
 the_query = "SELECT vehicle_id, COUNT(DISTINCT(trip_id)) AS trip_count"
 the_query += " FROM data_df"
@@ -52,16 +52,84 @@ print manhattan_avg_speeds.iloc[1]
 # Give your answer in minutes^2.
 ## South/West-bound is toward upper west side
 ## direction_id = 1
-## Get direciton_id from trips_df
+## Get direction_id from trips_df
 ## Get trip_id from trips_df and stop_times_df
 trips_df = pd.read_csv("gtfs_nyct_bus_20150103/trips.txt")
-stops_df = pd.read_csv("gtfs_nyct_bus_20150103/stops.txt")
 stop_times_df = pd.read_csv("gtfs_nyct_bus_20150103/stop_times.txt")
 
+the_query = "SELECT stop_times_df.trip_id,"
+the_query += " stop_times_df.arrival_time,"
+the_query += " stop_times_df.departure_time,"
+the_query += " stop_times_df.stop_id,"
+the_query += " stop_times_df.stop_sequence,"
+the_query += " trips_df.route_id"
+the_query += " FROM stop_times_df JOIN trips_df"
+the_query += " ON stop_times_df.trip_id = trips_df.trip_id"
+the_query += " WHERE trips_df.route_id = 'M116' AND trips_df.direction_id = 1"
+the_query += " AND trips_df.trip_id LIKE '%Weekday%'"
+the_query += " AND trips_df.trip_id LIKE '%M116%'"
+the_query += " ORDER BY 2"
+
+m116_southbound = sql.sqldf(the_query, locals())
+
+reformat_arrivals = m116_southbound.arrival_time
+for ii in range(len(reformat_arrivals)):
+    if reformat_arrivals[ii].startswith("24"):
+        dum = reformat_arrivals[ii].split(":")
+        dum[0] = "2015-01-29 00"
+        reformat_arrivals[ii] = ":".join(dum)
+    elif reformat_arrivals[ii].startswith("25"):
+        dum = reformat_arrivals[ii].split(":")
+        dum[0] = "2015-01-29 01"
+        reformat_arrivals[ii] = ":".join(dum)
+    else:
+       reformat_arrivals[ii] = "2015-01-28 " + reformat_arrivals[ii]
+ 
+m116_southbound.arrival_time = pd.to_datetime(reformat_arrivals, unit="s")
+stop_list = list(set(m116_southbound[m116_southbound.stop_sequence > 1].stop_id))
+arrival_differences = np.zeros(len(stop_list), dtype=list)
+
+for ii in range(len(stop_list)):
+    all_arrivals = np.sort(list(set(m116_southbound[m116_southbound.stop_id == stop_list[ii]].arrival_time)))
+    time_diffs = np.zeros(len(all_arrivals)-1)
+    for jj in range(len(all_arrivals)-1):
+        time_diffs[jj] = (all_arrivals[jj+1] - all_arrivals[jj]) / np.timedelta64(1, "s") / 60.
+    arrival_differences[ii] = time_diffs
+
+arrival_differences = np.concatenate(arrival_differences)
+var_diff = np.var(arrival_differences)
+
+# Compute the variance of the "lateness" of bus departures (ie scheduled 
+# departure time - actual departure time, note we could have "negative 
+# lateness") from the initial station at 120th street and Pleasant Ave for the 
+# M116 bus route in the South/West (S/W) direction. Give your answer in
+# minutes^2. You can make the simplifying assumption that the first reported
+# status on a SW-bound trip at the initial station is the departure time.
+stops_df = pd.read_csv("gtfs_nyct_bus_20150103/stops.txt")
+reformat_departures = m116_southbound.departure_time
+for ii in range(len(reformat_departures)):
+    if reformat_departures[ii].startswith("24"):
+        dum = reformat_departures[ii].split(":")
+        dum[0] = "2015-01-29 00"
+        reformat_departures[ii] = ":".join(dum)
+    elif reformat_departures[ii].startswith("25"):
+        dum = reformat_departures[ii].split(":")
+        dum[0] = "2015-01-29 01"
+        reformat_departures[ii] = ":".join(dum)
+    else:
+       reformat_departures[ii] = "2015-01-28 " + reformat_departures[ii]
+ 
+m116_southbound.departure_time = pd.to_datetime(reformat_departures, unit="s")
+m116_stop1 = m116_southbound[m116_southbound.stop_id == 401998] 
+stop2 = int(m116_southbound[m116_southbound.stop_sequence == 2].stop_id.iloc[0])
+
 the_query = "SELECT *"
-the_query += " FROM trips_df"
-the_query += " WHERE route_id = 'M116'"
-
-m116_trips = sql.sqldf(the_query, locals())
-
+the_query += " FROM data_df"
+the_query += " WHERE bus_route LIKE 'M116' AND next_stop_id = %i" % stop2
+m116_realtime_stop1 = sql.sqldf(the_query, locals())
+m116_realtime_stop1.timestamp = pd.to_datetime(m116_realtime_stop1.timestamp, unit = "s")
+## need to compare when they actually reported departing to when they were
+# supposed to report departing
+the_query = "SELECT trip_id, MIN(timestamp), dist_from_stop"
+the_query += " FROM m116_realtime_stop1 GROUP BY trip_id"
 
