@@ -4,6 +4,8 @@ import numpy as np
 
 data_df = pd.read_csv("realtime.csv").rename(columns={'Unnamed: 0': "entry_id"})
 data_df.timestamp = pd.to_datetime(data_df.timestamp, unit="s")
+data_df["bus_route"] = data_df.trip_id.map(lambda x: x.split("_")[-2])
+
 # median number of trips made by single vehicle
 the_query = "SELECT vehicle_id, COUNT(DISTINCT(trip_id)) AS trip_count"
 the_query += " FROM data_df"
@@ -13,8 +15,6 @@ vehicle_trip_count = sql.sqldf(the_query, locals())
 print np.median(vehicle_trip_count.trip_count)
 
 # the highest total number of trips made by a Manhattan bus route
-data_df["bus_route"] = data_df.trip_id.map(lambda x: x.split("_")[-2])
-
 the_query = "SELECT bus_route, COUNT(DISTINCT trip_id) AS trip_count"
 the_query += " FROM data_df"
 the_query += " WHERE bus_route LIKE 'M%'"
@@ -103,8 +103,7 @@ var_diff = np.var(arrival_differences)
 # departure time - actual departure time, note we could have "negative 
 # lateness") from the initial station at 120th street and Pleasant Ave for the 
 # M116 bus route in the South/West (S/W) direction. Give your answer in
-# minutes^2. You can make the simplifying assumption that the first reported
-# status on a SW-bound trip at the initial station is the departure time.
+# minutes^2.
 stops_df = pd.read_csv("gtfs_nyct_bus_20150103/stops.txt")
 reformat_departures = m116_southbound.departure_time
 for ii in range(len(reformat_departures)):
@@ -127,9 +126,49 @@ the_query = "SELECT *"
 the_query += " FROM data_df"
 the_query += " WHERE bus_route LIKE 'M116' AND next_stop_id = %i" % stop2
 m116_realtime_stop1 = sql.sqldf(the_query, locals())
-m116_realtime_stop1.timestamp = pd.to_datetime(m116_realtime_stop1.timestamp, unit = "s")
-## need to compare when they actually reported departing to when they were
-# supposed to report departing
-the_query = "SELECT trip_id, MIN(timestamp), dist_from_stop"
-the_query += " FROM m116_realtime_stop1 GROUP BY trip_id"
 
+the_query = "SELECT trip_id, MIN(timestamp) AS time, dist_from_stop"
+the_query += " FROM m116_realtime_stop1 GROUP BY trip_id"
+m116_realtime_stop1_times = sql.sqldf(the_query, locals())
+## need to compare when they actually reported departing to when they were
+## supposed to report departing
+the_query = "SELECT realtime.trip_id,"
+the_query += " scheduled.departure_time AS scheduled_time,"
+the_query += " realtime.time AS actual_time"
+the_query += " FROM m116_realtime_stop1_times AS realtime"
+the_query += " JOIN m116_stop1 AS scheduled"
+the_query += " ON realtime.trip_id = scheduled.trip_id"
+time_diffs = sql.sqldf(the_query, locals())
+delta_times = (pd.to_datetime(time_diffs.scheduled_time, unit="s") - pd.to_datetime(time_diffs.actual_time, unit="s")) / np.timedelta64(1, "m")
+var_diff_stop1 = np.var(delta_times)
+
+# You might notice that on trips, sometimes stops go unreported (or a trip is 
+# not completed). Over all trips reported in the realtime data, compute the 
+# percentage of scheduled stops that were not reported as an upcoming stop.
+## For every trip, get every scheduled stop along that trip, not including the
+##  first stop in the sequence
+trips_stops_dict = {}
+for trip in stop_times_df.trip_id:
+    trips_stops_dict[trip] = list(stop_times_df[stop_times_df.trip_id == trip].stop_id.iloc[1:])
+
+## For every trip in realtime get every stop along that realtime trip
+trips_realtime_dict = {}
+for trip in data_df.trip_id:
+    all_reported_stops = list(data_df[data_df.trip_id == trip].next_stop_id.iloc)
+    unique_ordered_stops = []
+    for stop in all_reported_stops:
+        if stop not in unique_ordered_stops:
+            unique_ordered_stops.append(stop)
+    trips_realtime_dict[trip] = unique_ordered_stops
+
+## If stop not reported in sequence, unreported_count += 1
+unreported_count = 0
+all_reported_count = 0
+for trip in trips_stops_dict:
+    if trip in trips_realtime_dict.keys():
+        for stop in trips_stops_dict[trip]:
+            all_reported_count += 1
+            if stop not in trips_realtime_dict[trip]:
+                unreported_count += 1
+
+pct = unreported_count / float(all_reported_count)
